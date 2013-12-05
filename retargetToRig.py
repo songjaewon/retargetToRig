@@ -17,11 +17,16 @@ class R2R :
         self.paramLayer = []      
         self.paramBoundDic = {}  
         self.paramValDic = {}
+        self.jntList = []
+        self.activeJntDic = {}
     
     def setParamList(self, paramList):
         self.paramList = paramList
+    
+    def setJntList(self, jntList):
+        self.jntList = jntList
         
-    def setParamLayer(self):    # make hierarchy of parameters and list of them (FAKE NOW)
+    def setParamLayer(self):    # @todo: Now fake hierarchy making. Make hierarchy of parameters and list of them 
         self.paramLayer = []
         tempParam = []
         for param in self.paramList :
@@ -29,7 +34,7 @@ class R2R :
                 tempParam.append(param)
         self.paramLayer.append(tempParam)
         
-#        for i in range(5) :
+#        for i in range(5) :   # hand - finger1_01 - finger1_02 - finger1_03 - finger2_01 - ...
 #            for j in range(3) :
 #                tempParam = []
 #                for param in self.paramList :                    
@@ -37,7 +42,7 @@ class R2R :
 #                        tempParam.append(param)
 #                self.paramLayer.append(tempParam)
         
-        for i in range(5) :
+        for i in range(5) :   # hand - [finger1_01, finger1_02, finger1_03] - [finger2_01 ...]
             tempParam = []
             for param in self.paramList :
                 if 'finger'+str(i+1) in param :
@@ -45,44 +50,57 @@ class R2R :
             self.paramLayer.append(tempParam)
 
         
-    def getActiveJntList(self, param):  # (FAKE NOW)
-        if 'hand_ctl' in param :
-            return ['finger1_02_jnt', 'finger1_03_jnt', 'finger1_04_jnt', 'finger2_02_jnt', 'finger2_03_jnt', 'finger2_04_jnt',
-                    'finger3_02_jnt', 'finger3_03_jnt', 'finger3_04_jnt', 'finger4_02_jnt', 'finger4_03_jnt', 'finger4_04_jnt',
-                    'finger5_02_jnt', 'finger5_03_jnt', 'finger5_04_jnt', 'hand_jnt']
-        elif 'finger1' in param :
-            return ['finger1_02_jnt', 'finger1_03_jnt', 'finger1_04_jnt']
-        elif 'finger2' in param :
-            return ['finger2_02_jnt', 'finger2_03_jnt', 'finger2_04_jnt']
-        elif 'finger3' in param :
-            return ['finger3_02_jnt', 'finger3_03_jnt', 'finger3_04_jnt']
-        elif 'finger4' in param :
-            return ['finger4_02_jnt', 'finger4_03_jnt', 'finger4_04_jnt']
-        elif 'finger5' in param :
-            return ['finger5_02_jnt', 'finger5_03_jnt', 'finger5_04_jnt']
-    
-    def setParamBoundDic(self):     # (FAKE NOW)
+    def makeActiveJntDic(self):
+        preJntValList = []
+        for jnt in self.jntList :
+            preJntVal = mc.xform(jnt, q=True, m=True, ws=True)
+            preJntValList.append(preJntVal)
         for param in self.paramList :
-            if 'grab' in param :
-                self.paramBoundDic[param] = [0.0,1.0]
-            elif 'spread' in param :
-                self.paramBoundDic[param] = [0.0,1.0]
-            elif 'rotate' in param :
-                self.paramBoundDic[param] = [-360.0, 360.0]
-#            if 'hand_ctl' in param :
-#                self.paramBoundDic[param] = [0.0,1.0]
-#            elif 'finger' in param :
-#                self.paramBoundDic[param] = [-180.0, 180.0]
+            paramVal = mc.getAttr(param)            
+            try : mc.setAttr(param, paramVal+0.5)     # @todo: Now just put in specific value (.5) but should be modified
+            except : mc.setAttr(param, paramVal-0.5)  
+            activeJntList = []
+            for i, jnt in enumerate(jntList) :
+                jntVal = mc.xform(jnt, q=True, m=True, ws=True)                
+                if jntVal != preJntValList[i] : activeJntList.append(jnt)                
+            self.activeJntDic[param] = activeJntList
+            mc.setAttr(param, paramVal)
     
+    def getActiveJntList(self, param):          
+        return self.activeJntDic[param]
+    
+    def setParamBoundDic(self):
+        for param in self.paramList:
+            paramBound = [None, None]
+            paramSplit = param.split('.')     
+                        
+            if mc.attributeQuery(paramSplit[1], re=True, node=paramSplit[0]) :
+                paramBound = mc.attributeQuery(paramSplit[1], range=True, node=paramSplit[0])
+            else :
+                if mc.attributeQuery(paramSplit[1], mne=True, node=paramSplit[0]) :
+                    paramBound[0] = mc.attributeQuery(paramSplit[1], min=True, node=paramSplit[0])
+                    paramBound[1] = 1000.0
+                elif mc.attributeQuery(paramSplit[1], mxe=True, node=paramSplit[0]) :
+                    paramBound[0] = 1000.0
+                    paramBound[1] = mc.attributeQuery(paramSplit[1], max=True, node=paramSplit[0])
+                else:
+                    if 'rotate' in param : paramBound = [-360.0, 360.0]
+                    elif 'translate' in param : paramBound = [-1000.0, 1000.0]
+                    else : paramBound = [-1000.0, 1000.0]  
+                              
+            self.paramBoundDic[param] = paramBound
+#                    
     def setInitParamValDic(self):
         for param in self.paramList :
             self.paramValDic[param] = 0.0
             
-    def initOptimize(self, paramList):  # initial settings for optimize
+    def initOptimize(self, paramList, jntList):  # initial settings for optimize
         self.setParamList(paramList)
+        self.setJntList(jntList)
         self.setParamLayer()
         self.setParamBoundDic()   
         self.setInitParamValDic() 
+        self.makeActiveJntDic()
         
     def setCtrlAttr(self, x, paramSet):       
         if(len(x) != len(paramSet)):
@@ -135,7 +153,7 @@ class R2R :
                 bound = self.paramBoundDic[param]
                 lowerBoundList.append(bound[0])
                 upperBoundList.append(bound[1])            
-            opt.set_lower_bounds(lowerBoundList)
+            opt.set_lower_bounds(lowerBoundList) # set 
             opt.set_upper_bounds(upperBoundList)
             del lowerBoundList, upperBoundList
             
@@ -163,6 +181,7 @@ class R2R :
             print "count : ", self.count
             print "error : ", opt.last_optimum_value()
             self.errorSum = self.errorSum +opt.last_optimum_value() 
+            
         t1 = time()
             #print "optimized paramSet : ", paramSet
         print "computation time : %f" %(t1-t0)
@@ -175,7 +194,7 @@ class R2R :
                 mc.xform('tgt_finger'+str(i+1)+'_0'+str(j+2)+'_jnt', rotation=jntVal[i*3+j], ws=True)
         
 
-#make paramList
+#make paramList (hand example)
 paramList = []
 for i in range(5) :
     for j in range(3) :
@@ -184,13 +203,15 @@ for i in range(5) :
         paramList.append('finger'+str(i+1)+'_0'+str(j+1)+'_ctl.rotateZ')
 paramList.append('hand_ctl.grab')
 paramList.append('hand_ctl.spread')
-
 paramList.append('hand_ctl.rotateX')
 paramList.append('hand_ctl.rotateY')
 paramList.append('hand_ctl.rotateZ')
 
+jntList = [u'hand_jnt', u'handMid_jnt', u'finger1_02_jnt', u'finger1_03_jnt', u'finger1_04_jnt', u'finger2_02_jnt', u'finger2_03_jnt', u'finger2_04_jnt', u'finger3_02_jnt', u'finger3_03_jnt', u'finger3_04_jnt', u'finger4_02_jnt', u'finger4_03_jnt', u'finger4_04_jnt', u'finger5_02_jnt', u'finger5_03_jnt', u'finger5_04_jnt']
+
+
 r2r = R2R()
-r2r.initOptimize(paramList)
+r2r.initOptimize(paramList, jntList)
 #opt = nlopt.opt(nlopt.LN_COBYLA, numParam)            
 #opt = nlopt.opt(nlopt.LN_BOBYQA, numParam)
 #opt = nlopt.opt(nlopt.LN_NEWUOA_BOUND, numParam)
